@@ -1,0 +1,100 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    environment:
+        - POSTGRES_PASSWORD=postgres
+        - POSTGRES_USER=postgres
+        - POSTGRES_DB=postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:latest
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  worker:
+    image: nadir19/worker_image
+    container_name: worker_container
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      vote:
+        condition: service_healthy
+      result:
+        condition: service_healthy
+    # Define a meaningful healthcheck here if applicable
+    # healthcheck:
+    #   test: ...
+    #   interval: ...
+    #   ...
+
+  vote:
+    image: nadir19/vote_image:latest
+    container_name: vote_container
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "5002:80"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    volumes:
+      - ./vote:/usr/local/app
+
+  seed-data:
+    image: nadir19/seeddata_image:latest
+    container_name: seedData_container
+    profiles: ["seed"]
+    depends_on:
+      vote:
+        condition: service_healthy
+    restart: "no"
+
+  result:
+    image: nadir19/result_image:latest
+    container_name: result_container
+    entrypoint: nodemon --inspect=0.0.0.0 server.js
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "5001:80"
+      - "127.0.0.1:9229:9229"
+    volumes:
+      - ./result:/usr/local/app
+
+networks:
+  front-tier:
+    name: reseau_font
+  back-tier:
+    name: reseau_back
+
+volumes:
+  db-data:
